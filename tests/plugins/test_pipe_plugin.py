@@ -146,8 +146,6 @@ def test_pipe_plugin_ddp_rpc_with_wrong_balance(tmpdir, args=None):
 
 
 class SequentialModelRPCManual(LightningModule):
-    _count = 0
-    _called = 0
 
     def __init__(self):
         super().__init__()
