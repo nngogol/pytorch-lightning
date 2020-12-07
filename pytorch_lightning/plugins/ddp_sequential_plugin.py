@@ -76,7 +76,7 @@ class DDPSequentialPlugin(RPCPlugin):
             raise MisconfigurationException(
                 'Please set example_input_array to your model, so we can infer the right model balance for you')
         balance_func = getattr(pipe_balance, self.balance_mode)
-        self.balance = balance_func(self.balance, model.layers, model.example_input_array)
+        self.balance = balance_func(self.num_gpus_per_model, model.layers, model.example_input_array)
         self._sync_balance_to_all_parallel_groups()
 
         log.info(f'The following model balance {self.balance.tolist()} was inferred using {self.balance_mode} mode')
