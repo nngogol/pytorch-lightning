@@ -22,9 +22,10 @@ if FAIRSCALE_PIPE_AVAILABLE:
 
 class DDPSequentialPlugin(RPCPlugin):
     def __init__(self,
-                 balance: Optional[Union[int, List[int]]] = None,
+                 balance: Optional[List[int]] = None,
                  microbatches: int = 8,
                  checkpoint: str = 'except_last',
+                 gpus_per_model: Optional[int] = None,
                  balance_mode: str = "balance_by_size",
                  pipelined_backward: Optional[bool] = True,
                  **kwargs):
@@ -32,6 +33,7 @@ class DDPSequentialPlugin(RPCPlugin):
         super().__init__(**kwargs)
 
         self.balance = balance
+        self.gpus_per_model = gpus_per_model
 
         self.microbatches = microbatches
         self.checkpoint = checkpoint
@@ -76,7 +78,7 @@ class DDPSequentialPlugin(RPCPlugin):
             raise MisconfigurationException(
                 'Please set example_input_array to your model, so we can infer the right model balance for you')
         balance_func = getattr(pipe_balance, self.balance_mode)
-        self.balance = balance_func(self.num_gpus_per_model, model.layers, model.example_input_array)
+        self.balance = balance_func(self.gpus_per_model, model.layers, model.example_input_array)
         self._sync_balance_to_all_parallel_groups()
 
         log.info(f'The following model balance {self.balance.tolist()} was inferred using {self.balance_mode} mode')
@@ -141,16 +143,16 @@ class DDPSequentialPlugin(RPCPlugin):
         return False
 
     def init_model_parallel_groups(self, trainer):
-        self.num_gpus_per_model = self._infer_num_gpus_from_balance(trainer)
+        self.gpus_per_model = self._infer_num_gpus(trainer)
         num_model_parallel = 1  # TODO currently no support for vertical model parallel
         mpu.initialize_model_parallel(
             model_parallel_size_=num_model_parallel,
-            pipeline_length=self.num_gpus_per_model
+            pipeline_length=self.gpus_per_model
         )
 
-    def _infer_num_gpus_from_balance(self, trainer):
+    def _infer_num_gpus(self, trainer):
         """
-        Using the balance we can infer the number of GPUs per model:
+        Infer the number of GPUs per model.
         Args:
             trainer: The trainer object.
         Returns: The appropriate balance for the model
@@ -158,9 +160,9 @@ class DDPSequentialPlugin(RPCPlugin):
         if isinstance(self.balance, list):
             # User has defined a balance for his model
             return len(self.balance)
-        elif isinstance(self.balance, int):
+        elif isinstance(self.gpus_per_model, int):
             # User has defined the number of GPUs per model
-            return self.balance
+            return self.gpus_per_model
         # Assume that the user wants to balance his model on all GPUs
         return trainer.world_size
 
@@ -209,10 +211,10 @@ class DDPSequentialPlugin(RPCPlugin):
             current_layers = pl_module.layers
             model.foreach_worker(
                 save_layers_on_all_rank_zero_workers,
-                {"num_gpus_per_model": self.num_gpus_per_model},
+                {"gpus_per_model": self.gpus_per_model},
                 include_self=True
             )
-            pl_module.layers = reload_sequential_from_saved_layers(self.num_gpus_per_model)
+            pl_module.layers = reload_sequential_from_saved_layers(self.gpus_per_model)
             save_model_fn(last_filepath, trainer, pl_module)
             del pl_module.layers
             pl_module.layers = current_layers
@@ -339,19 +341,19 @@ def run_optimizer(ctx, model):
 
 
 def save_layers_on_all_rank_zero_workers(ctx, model):
-    num_gpus_per_model = ctx["num_gpus_per_model"]
+    gpus_per_model = ctx["gpus_per_model"]
     rank = torch_distrib.get_rank()
-    if rank in range(num_gpus_per_model):
+    if rank in range(gpus_per_model):
         seq = list(model.children())[0]
         torch.save(seq, f"seq_{rank}.pt")
 
 
-def reload_sequential_from_saved_layers(num_gpus_per_model):
-    partial_seqs = [torch.load(f"seq_{rank}.pt", map_location='cpu') for rank in range(num_gpus_per_model)]
+def reload_sequential_from_saved_layers(gpus_per_model):
+    partial_seqs = [torch.load(f"seq_{rank}.pt", map_location='cpu') for rank in range(gpus_per_model)]
     seq = nn.Sequential()
     for p_seq in partial_seqs:
         for name, child in p_seq.named_children():
             seq.add_module(name, child)
     # delete tmp files
-    _ = [os.remove(f"seq_{rank}.pt") for rank in range(num_gpus_per_model)]
+    _ = [os.remove(f"seq_{rank}.pt") for rank in range(gpus_per_model)]
     return seq
