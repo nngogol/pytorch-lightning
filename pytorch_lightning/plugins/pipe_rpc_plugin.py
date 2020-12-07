@@ -230,6 +230,10 @@ class PipeRPCPlugin(RPCPlugin):
     def is_main_rpc_process(self):
         return self.main_rpc_process
 
+    def barrier(self):
+        if torch_distrib.is_initialized() and self.is_main_rpc_process:
+            torch_distrib.barrier(group=self.data_parallel_group)
+
     def _check_pipe_available(self):
         if not FAIRSCALE_PIPE_AVAILABLE:
             raise MisconfigurationException(

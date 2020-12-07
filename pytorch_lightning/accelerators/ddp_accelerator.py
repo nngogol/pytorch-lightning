@@ -163,7 +163,10 @@ class DDPAccelerator(Accelerator):
         return output
 
     def barrier(self, name: Optional[str] = None):
-        if torch_distrib.is_initialized():
+        if self.rpc_enabled:
+            # Allow RPC to handle barrier on main RPC processes
+            self.ddp_plugin.barrier()
+        elif torch_distrib.is_initialized():
             torch_distrib.barrier(group=self.ddp_plugin.data_parallel_group)
 
     def _check_can_spawn_children(self):

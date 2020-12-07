@@ -56,3 +56,6 @@ class RPCPlugin(DDPPlugin):
 
     def is_main_rpc_process(self):
         raise NotImplementedError
+
+    def barrier(self):
+        raise NotImplementedError
