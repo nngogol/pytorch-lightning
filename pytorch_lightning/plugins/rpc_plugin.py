@@ -52,6 +52,7 @@ class RPCPlugin(DDPPlugin):
     def on_exit_rpc_process(self, trainer):
         if self.rpc_initialized:
             torch.distributed.rpc.shutdown()
+            self.rpc_initialized = False
 
     def optimizer_step(self,
                        model,

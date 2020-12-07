@@ -12,24 +12,140 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
-from distutils.version import LooseVersion
 from unittest import mock
 
 import pytest
 import torch
-import torch.distributed as torch_distrib
 from torch import nn
 
 from pytorch_lightning import LightningModule, Trainer
-from pytorch_lightning.callbacks import Callback
-from pytorch_lightning.plugins.native_amp import NativeAMPPlugin
-from pytorch_lightning.plugins.pipe_rpc_plugin import FAIRSCALE_AVAILABLE, PipeParallelPlugin
+from pytorch_lightning.plugins.pipe_rpc_plugin import PipeParallelPlugin
+from pytorch_lightning.utilities import FAIRSCALE_PIPE_AVAILABLE
 from pytorch_lightning.utilities.exceptions import MisconfigurationException
-from tests.base.boring_model import BoringModel, RandomDataset
+from tests.base.boring_model import RandomDataset
 
 
-class SequentialModelRPC(LightningModule):
+def cleanup(ctx, model):
+    """
+    Cleanup function required to ensure we delete the pipe module at the end of the the test on all workers
+    """
+    del model
 
+
+@pytest.mark.skipif(not FAIRSCALE_PIPE_AVAILABLE, reason="test requires FairScale to be installed")
+@mock.patch.dict(os.environ, {"PL_DEV_DEBUG": "1"})
+@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="test requires multi-GPU machine")
+@pytest.mark.skipif(not os.getenv("PL_RUNNING_SPECIAL_TESTS", '0') == '1',
+                    reason="test should be run outside of pytest")
+def test_pipe_plugin_ddp_rpc_manual(tmpdir, args=None):
+    model = SequentialModelRPCManual()
+    trainer = Trainer(
+        max_epochs=2,
+        limit_train_batches=2,
+        limit_val_batches=2,
+        limit_test_batches=2,
+        gpus=2,
+        distributed_backend="ddp",
+        plugins=[PipeParallelPlugin(balance=[2, 1])],
+    )
+
+    trainer.fit(model)
+
+    assert len(trainer.dev_debugger.pbar_added_metrics) > 0
+
+    del model
+
+
+@pytest.mark.skipif(not FAIRSCALE_PIPE_AVAILABLE, reason="test requires FairScale to be installed")
+@mock.patch.dict(os.environ, {"PL_DEV_DEBUG": "1"})
+@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="test requires multi-GPU machine")
+@pytest.mark.skipif(not os.getenv("PL_RUNNING_SPECIAL_TESTS", '0') == '1',
+                    reason="test should be run outside of pytest")
+def test_pipe_plugin_ddp_rpc_manual_amp(tmpdir, args=None):
+    model = SequentialModelRPCManual()
+    trainer = Trainer(
+        max_epochs=2,
+        limit_train_batches=2,
+        limit_val_batches=2,
+        limit_test_batches=2,
+        gpus=2,
+        precision=16,
+        amp_backend="native",
+        distributed_backend="ddp",
+        plugins=[PipeParallelPlugin(balance=[2, 1])],
+    )
+    try:
+        trainer.fit(model)
+
+        assert len(trainer.dev_debugger.pbar_added_metrics) > 0
+
+    except MisconfigurationException as e:
+        assert str(e) == 'PipeRPCPlugin is currently not supported in Automatic Mixed Precision'
+
+    del model
+
+
+@pytest.mark.skipif(not FAIRSCALE_PIPE_AVAILABLE, reason="test requires FairScale to be installed")
+@mock.patch.dict(os.environ, {"PL_DEV_DEBUG": "1"})
+@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="test requires multi-GPU machine")
+@pytest.mark.skipif(not os.getenv("PL_RUNNING_SPECIAL_TESTS", '0') == '1',
+                    reason="test should be run outside of pytest")
+def test_pipe_plugin_ddp_rpc_automatic(tmpdir, args=None):
+    model = SequentialModelRPCAutomatic()
+    trainer = Trainer(
+        max_epochs=2,
+        limit_train_batches=2,
+        limit_val_batches=2,
+        limit_test_batches=2,
+        gpus=2,
+        distributed_backend="ddp",
+        plugins=[PipeParallelPlugin(balance=[2, 1])],
+    )
+
+    try:
+        trainer.fit(model)
+
+        assert len(trainer.dev_debugger.pbar_added_metrics) > 0
+
+        model.foreach_worker(cleanup, include_self=True)
+
+    except MisconfigurationException as e:
+        assert str(e) == 'PipeRPCPlugin is currently not supported in automatic optimization'
+
+    del model
+
+
+@pytest.mark.skipif(not FAIRSCALE_PIPE_AVAILABLE, reason="test requires FairScale to be installed")
+@mock.patch.dict(os.environ, {"PL_DEV_DEBUG": "1"})
+@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="test requires multi-GPU machine")
+@pytest.mark.skipif(not os.getenv("PL_RUNNING_SPECIAL_TESTS", '0') == '1',
+                    reason="test should be run outside of pytest")
+def test_pipe_plugin_ddp_rpc_with_wrong_balance(tmpdir, args=None):
+    model = SequentialModelRPCAutomatic()
+    trainer = Trainer(
+        max_epochs=2,
+        limit_train_batches=2,
+        limit_val_batches=2,
+        limit_test_batches=2,
+        gpus=2,
+        distributed_backend="ddp",
+        plugins=[PipeParallelPlugin(balance=[2, 2])],
+    )
+
+    try:
+        trainer.fit(model)
+
+        assert len(trainer.dev_debugger.pbar_added_metrics) > 0
+
+        model.foreach_worker(cleanup, include_self=True)
+
+    except MisconfigurationException as e:
+        assert str(e) == 'The provided balance sum: 4 doesn t match your Sequential length: 3'
+
+    del model
+
+
+class SequentialModelRPCManual(LightningModule):
     _count = 0
     _called = 0
 
@@ -69,6 +185,7 @@ class SequentialModelRPC(LightningModule):
                 self.log("train_loss", loss, on_epoch=True, prog_bar=True)
                 self.manual_backward(loss, opt)
                 assert torch.stack([torch.abs(p.grad).sum() for p in self.parameters()]).sum() > 0
+
             opt.step(closure=closure)
         self._called += 1
         assert self._called == self._count
@@ -97,62 +214,9 @@ class SequentialModelRPC(LightningModule):
     def test_dataloader(self):
         return torch.utils.data.DataLoader(RandomDataset(32, 64))
 
-
-def cleanup(ctx, model):
-    del model
-
-
-@pytest.mark.skipif(not FAIRSCALE_AVAILABLE, reason="test requires fairscale to be installed")
-@mock.patch.dict(os.environ, {"PL_DEV_DEBUG": "1"})
-@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="test requires multi-GPU machine")
-@pytest.mark.skipif(not os.getenv("PL_RUNNING_SPECIAL_TESTS", '0') == '1', reason="test should be run outside of pytest")
-def test_pipe_plugin_ddp_rpc_manual(tmpdir, args=None):
-    model = SequentialModelRPC()
-    trainer = Trainer(
-        max_epochs=2,
-        limit_train_batches=2,
-        limit_val_batches=2,
-        limit_test_batches=2,
-        gpus=2,
-        distributed_backend="ddp",
-        plugins=[PipeParallelPlugin(balance=[2, 1])],
-        automatic_optimization=False,
-    )
-
-    trainer.fit(model)
-
-    assert len(trainer.dev_debugger.pbar_added_metrics) > 0
-
-    del model
-
-
-@pytest.mark.skipif(not FAIRSCALE_AVAILABLE, reason="test requires fairscale to be installed")
-@mock.patch.dict(os.environ, {"PL_DEV_DEBUG": "1"})
-@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="test requires multi-GPU machine")
-@pytest.mark.skipif(not os.getenv("PL_RUNNING_SPECIAL_TESTS", '0') == '1', reason="test should be run outside of pytest")
-def test_pipe_plugin_ddp_rpc_manual_amp(tmpdir, args=None):
-    model = SequentialModelRPC()
-    trainer = Trainer(
-        max_epochs=2,
-        limit_train_batches=2,
-        limit_val_batches=2,
-        limit_test_batches=2,
-        gpus=2,
-        precision=16,
-        amp_backend="native",
-        distributed_backend="ddp",
-        plugins=[PipeParallelPlugin(balance=[2, 1])],
-        automatic_optimization=False,
-    )
-    try:
-        trainer.fit(model)
-
-        assert len(trainer.dev_debugger.pbar_added_metrics) > 0
-
-    except MisconfigurationException as e:
-        assert str(e) == 'PipeRPCPlugin is currently not supported in Automatic Mixed Precision'
-
-    del model
+    @property
+    def automatic_optimization(self) -> bool:
+        return False
 
 
 class SequentialModelRPCAutomatic(LightningModule):
@@ -201,63 +265,3 @@ class SequentialModelRPCAutomatic(LightningModule):
 
     def test_dataloader(self):
         return torch.utils.data.DataLoader(RandomDataset(32, 64))
-
-
-@pytest.mark.skipif(not FAIRSCALE_AVAILABLE, reason="test requires fairscale to be installed")
-@mock.patch.dict(os.environ, {"PL_DEV_DEBUG": "1"})
-@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="test requires multi-GPU machine")
-@pytest.mark.skipif(not os.getenv("PL_RUNNING_SPECIAL_TESTS", '0') == '1', reason="test should be run outside of pytest")
-def test_pipe_plugin_ddp_rpc_automatic(tmpdir, args=None):
-    model = SequentialModelRPCAutomatic()
-    trainer = Trainer(
-        max_epochs=2,
-        limit_train_batches=2,
-        limit_val_batches=2,
-        limit_test_batches=2,
-        gpus=2,
-        distributed_backend="ddp",
-        plugins=[PipeParallelPlugin(balance=[2, 1])],
-        automatic_optimization=True,
-    )
-
-    try:
-        trainer.fit(model)
-
-        assert len(trainer.dev_debugger.pbar_added_metrics) > 0
-
-        model.foreach_worker(cleanup, include_self=True)
-
-    except MisconfigurationException as e:
-        assert str(e) == 'PipeRPCPlugin is currently not supported in automatic optimization'
-
-    del model
-
-
-@pytest.mark.skipif(not FAIRSCALE_AVAILABLE, reason="test requires fairscale to be installed")
-@mock.patch.dict(os.environ, {"PL_DEV_DEBUG": "1"})
-@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="test requires multi-GPU machine")
-@pytest.mark.skipif(not os.getenv("PL_RUNNING_SPECIAL_TESTS", '0') == '1', reason="test should be run outside of pytest")
-def test_pipe_plugin_ddp_rpc_with_wrong_balance(tmpdir, args=None):
-    model = SequentialModelRPCAutomatic()
-    trainer = Trainer(
-        max_epochs=2,
-        limit_train_batches=2,
-        limit_val_batches=2,
-        limit_test_batches=2,
-        gpus=2,
-        distributed_backend="ddp",
-        plugins=[PipeParallelPlugin(balance=[2, 2])],
-        automatic_optimization=False,
-    )
-
-    try:
-        trainer.fit(model)
-
-        assert len(trainer.dev_debugger.pbar_added_metrics) > 0
-
-        model.foreach_worker(cleanup, include_self=True)
-
-    except MisconfigurationException as e:
-        assert str(e) == 'The provided balance sum: 4 doesn t match your Sequential length: 3'
-
-    del model
