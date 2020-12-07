@@ -1,5 +1,5 @@
 import os
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import torch
 import torch.distributed as torch_distrib
@@ -22,8 +22,7 @@ if FAIRSCALE_PIPE_AVAILABLE:
 
 class DDPSequentialPlugin(RPCPlugin):
     def __init__(self,
-                 balance: Optional[List[int]] = None,
-                 num_partitions: Optional[int] = None,
+                 balance: Optional[Union[int, List[int]]] = None,
                  microbatches: int = 8,
                  checkpoint: str = 'except_last',
                  balance_mode: str = "balance_by_size",
@@ -33,14 +32,7 @@ class DDPSequentialPlugin(RPCPlugin):
         super().__init__(**kwargs)
 
         self.balance = balance
-        if self.balance is None:
-            raise MisconfigurationException(
-                'Please, provide a balance for your model. '
-                'Example: nn.Sequential(torch.nn.Linear(32, 32), nn.ReLU(), nn.Linear(32, 2)) contains 3 layers. '
-                'A possible balance between 2 gpus is [2, 1]'
-            )
 
-        self.num_partitions = num_partitions
         self.microbatches = microbatches
         self.checkpoint = checkpoint
         self.balance_mode = balance_mode
@@ -68,24 +60,38 @@ class DDPSequentialPlugin(RPCPlugin):
                 global_rank=global_rank,
                 world_size=world_size
             )
-            self.init_model_parallel_groups()
 
+            self.init_model_parallel_groups(trainer)
+            self.set_main_rpc_process()
+
+            self._check_sequential_model_exists(trainer)
             if self.main_rpc_process:
-                self._check_sequential_model_exists(trainer)
                 if self.balance is None:
-                    self.balance = self._infer_model_balance(trainer)
+                    self._infer_model_balance(trainer)
                 self._assert_valid_model_balance(trainer)
-        self.set_main_rpc_process()
 
     def _infer_model_balance(self, trainer):
         model = trainer.get_model()
-        partitions = torch.cuda.device_count() if self.num_partitions is None else self.num_partitions
         if model.example_input_array is None:
             raise MisconfigurationException(
                 'Please set example_input_array to your model, so we can infer the right model balance for you')
         balance_func = getattr(pipe_balance, self.balance_mode)
-        log.info(f'The following model balance {self.balance} was inferred using {self.balance_mode} mode')
-        return balance_func(partitions, model.layers, model.example_input_array)
+        self.balance = balance_func(self.balance, model.layers, model.example_input_array)
+        self._sync_balance_to_all_parallel_groups()
+
+        log.info(f'The following model balance {self.balance.tolist()} was inferred using {self.balance_mode} mode')
+
+    def _sync_balance_to_all_parallel_groups(self, main_rank=0):
+        """
+        Ensures that we sync the balance to all main processes, so that the balance is the same per replica.
+        Args:
+            main_rank: The rank with the balance we'd like to replicate.
+        """
+        self.balance = torch.tensor(self.balance, dtype=torch.int).cuda()
+        # Ensure we sync to all processes within the main data parallel group
+        # We use the data parallel group as all main processes are found within the same group
+        torch_distrib.broadcast(self.balance, src=main_rank, group=mpu.get_data_parallel_group())
+        self.balance = self.balance.cpu()
 
     def _check_sequential_model_exists(self, trainer):
         model = trainer.get_model()
@@ -134,13 +140,29 @@ class DDPSequentialPlugin(RPCPlugin):
             return True
         return False
 
-    def init_model_parallel_groups(self):
-        self.num_gpus_per_model = len(self.balance)
+    def init_model_parallel_groups(self, trainer):
+        self.num_gpus_per_model = self._infer_num_gpus_from_balance(trainer)
         num_model_parallel = 1  # TODO currently no support for vertical model parallel
         mpu.initialize_model_parallel(
             model_parallel_size_=num_model_parallel,
             pipeline_length=self.num_gpus_per_model
         )
+
+    def _infer_num_gpus_from_balance(self, trainer):
+        """
+        Using the balance we can infer the number of GPUs per model:
+        Args:
+            trainer: The trainer object.
+        Returns: The appropriate balance for the model
+        """
+        if isinstance(self.balance, list):
+            # User has defined a balance for his model
+            return len(self.balance)
+        elif isinstance(self.balance, int):
+            # User has defined the number of GPUs per model
+            return self.balance
+        # Assume that the user wants to balance his model on all GPUs
+        return trainer.world_size
 
     def on_exit_rpc_process(self, trainer):
         if not trainer.testing:
@@ -149,7 +171,6 @@ class DDPSequentialPlugin(RPCPlugin):
             # Add trainer/configure_optimizers to the pipe model for access in all worker processes
             rpc_pipe.PipeModel.trainer = trainer
             rpc_pipe.PipeModel.configure_optimizers = trainer.model.configure_optimizers
-        super().on_exit_rpc_process(trainer)
 
     def set_main_rpc_process(self):
         self.main_rpc_process = torch_distrib.get_rank(group=mpu.get_pipeline_parallel_group()) == 0

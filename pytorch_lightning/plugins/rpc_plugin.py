@@ -50,6 +50,9 @@ class RPCPlugin(DDPPlugin):
         raise NotImplementedError
 
     def on_exit_rpc_process(self, trainer):
+        self.exit_rpc_process()
+
+    def exit_rpc_process(self):
         if self.rpc_initialized:
             torch.distributed.rpc.shutdown()
             self.rpc_initialized = False
