@@ -63,9 +63,11 @@ class DDPHPCAccelerator(Accelerator):
         self.trainer.global_rank = self.trainer.node_rank * self.trainer.num_processes + process_idx
         self.trainer.world_size = self.trainer.num_nodes * self.trainer.num_processes
 
-    def model_to_device(self, model, process_idx):
+    def init_device(self, process_idx):
         self.trainer.root_gpu = process_idx
         torch.cuda.set_device(self.trainer.root_gpu)
+
+    def model_to_device(self, model):
         model.cuda(self.trainer.root_gpu)
 
     def get_device_ids(self):
@@ -127,6 +129,9 @@ class DDPHPCAccelerator(Accelerator):
         # set warning rank
         rank_zero_only.rank = self.trainer.global_rank
 
+        # Initialize cuda device
+        self.init_device(process_idx)
+
         # set up server using proc 0's ip address
         # try to init for 20 times at max in case ports are taken
         # where to store ip_table
@@ -158,7 +163,7 @@ class DDPHPCAccelerator(Accelerator):
             model = self.configure_sync_batchnorm(model)
 
         # move the model to the correct device
-        self.model_to_device(model, process_idx)
+        self.model_to_device(model)
 
         # CHOOSE OPTIMIZER
         # allow for lr schedulers as well

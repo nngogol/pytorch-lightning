@@ -102,9 +102,11 @@ class DDP2Accelerator(Accelerator):
     def broadcast(self, obj, src=0):
         return self.dist.broadcast(obj)
 
-    def model_to_device(self, model, process_idx):
+    def init_device(self, process_idx):
         self.trainer.root_gpu = process_idx
         torch.cuda.set_device(self.trainer.root_gpu)
+
+    def model_to_device(self, model):
         model.cuda(self.trainer.root_gpu)
 
     def get_device_ids(self):
@@ -133,6 +135,9 @@ class DDP2Accelerator(Accelerator):
 
         # set warning rank
         rank_zero_only.rank = self.trainer.global_rank
+
+        # Initialize cuda device
+        self.init_device(process_idx)
 
         # set up server using proc 0's ip address
         # try to init for 20 times at max in case ports are taken
@@ -165,7 +170,7 @@ class DDP2Accelerator(Accelerator):
             model = self.configure_sync_batchnorm(model)
 
         # move the model to the correct device
-        self.model_to_device(model, process_idx)
+        self.model_to_device(model)
 
         # CHOOSE OPTIMIZER
         # allow for lr schedulers as well
