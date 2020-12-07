@@ -35,7 +35,7 @@ This script splits a convolutional model onto multiple GPUs, whilst using the in
 to balance across your GPUs.
 
 To run:
-python cnn_cifar_pipe.py --accelerator ddp --gpus 4 --max_epochs 1  --batch_size 256 --use_ddp_sequential
+python conv_model_sequential_example.py --accelerator ddp --gpus 4 --max_epochs 1  --batch_size 256 --use_ddp_sequential
 """
 
 
