@@ -111,7 +111,7 @@ class DDPSpawnAccelerator(Accelerator):
         rank_zero_only.rank = self.trainer.global_rank
 
         # Initialize cuda device
-        self.init_device(process_idx)
+        self.init_device(process_idx, is_master)
 
         # set up server using proc 0's ip address
         # try to init for 20 times at max in case ports are taken
@@ -144,7 +144,7 @@ class DDPSpawnAccelerator(Accelerator):
             model = self.configure_sync_batchnorm(model)
 
         # move the model to the correct device
-        self.model_to_device(model, process_idx, is_master)
+        self.model_to_device(model)
 
         # CHOOSE OPTIMIZER
         # allow for lr schedulers as well
@@ -186,7 +186,7 @@ class DDPSpawnAccelerator(Accelerator):
         self.trainer.global_rank = self.trainer.node_rank * self.trainer.num_processes + process_idx
         self.trainer.world_size = self.trainer.num_nodes * self.trainer.num_processes
 
-    def init_device(self, process_idx):
+    def init_device(self, process_idx, is_master):
         gpu_idx = self.trainer.data_parallel_device_ids[self.trainer.local_rank]
         self.trainer.root_gpu = gpu_idx
         torch.cuda.set_device(self.trainer.root_gpu)
