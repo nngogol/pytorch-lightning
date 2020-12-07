@@ -18,10 +18,9 @@ if FAIRSCALE_PIPE_AVAILABLE:
     from fairscale.nn.pipe import balance as pipe_balance
     from fairscale.nn.pipe import rpc as rpc_pipe
     from fairscale.nn.pipe.pipeline import PipelineStyle
-    from torch.distributed import rpc
 
 
-class PipeParallelPlugin(RPCPlugin):
+class DDPSequentialPlugin(RPCPlugin):
     def __init__(self,
                  balance: Optional[List[int]] = None,
                  num_partitions: Optional[int] = None,
@@ -167,11 +166,11 @@ class PipeParallelPlugin(RPCPlugin):
         automatic_optimization = trainer.train_loop.automatic_optimization and trainer.model.automatic_optimization
         if automatic_optimization:
             raise MisconfigurationException(
-                'PipeRPCPlugin is currently not supported in automatic optimization')
+                ' is currently not supported in automatic optimization')
 
         if trainer.amp_backend is not None:
             raise MisconfigurationException(
-                'PipeRPCPlugin is currently not supported in Automatic Mixed Precision')
+                'DDPSequentialPlugin is currently not supported in Automatic Mixed Precision')
 
     def on_after_setup_optimizers(self, trainer):
         self._optimizers_map = {opt_idx: False for opt_idx, opt in enumerate(trainer.optimizers)}

@@ -19,7 +19,7 @@ import torch
 from torch import nn
 
 from pytorch_lightning import LightningModule, Trainer
-from pytorch_lightning.plugins.pipe_rpc_plugin import PipeParallelPlugin
+from pytorch_lightning.plugins.ddp_sequential_plugin import DDPSequentialPlugin
 from pytorch_lightning.utilities import FAIRSCALE_PIPE_AVAILABLE
 from pytorch_lightning.utilities.exceptions import MisconfigurationException
 from tests.base.boring_model import RandomDataset
@@ -37,7 +37,7 @@ def cleanup(ctx, model):
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="test requires multi-GPU machine")
 @pytest.mark.skipif(not os.getenv("PL_RUNNING_SPECIAL_TESTS", '0') == '1',
                     reason="test should be run outside of pytest")
-def test_pipe_plugin_ddp_rpc_manual(tmpdir, args=None):
+def test_ddp_sequential_plugin_ddp_rpc_manual(tmpdir, args=None):
     model = SequentialModelRPCManual()
     trainer = Trainer(
         max_epochs=2,
@@ -46,7 +46,7 @@ def test_pipe_plugin_ddp_rpc_manual(tmpdir, args=None):
         limit_test_batches=2,
         gpus=2,
         distributed_backend="ddp",
-        plugins=[PipeParallelPlugin(balance=[2, 1])],
+        plugins=[DDPSequentialPlugin(balance=[2, 1])],
     )
 
     trainer.fit(model)
@@ -61,7 +61,7 @@ def test_pipe_plugin_ddp_rpc_manual(tmpdir, args=None):
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="test requires multi-GPU machine")
 @pytest.mark.skipif(not os.getenv("PL_RUNNING_SPECIAL_TESTS", '0') == '1',
                     reason="test should be run outside of pytest")
-def test_pipe_plugin_ddp_rpc_manual_amp(tmpdir, args=None):
+def test_ddp_sequential_plugin_ddp_rpc_manual_amp(tmpdir, args=None):
     model = SequentialModelRPCManual()
     trainer = Trainer(
         max_epochs=2,
@@ -72,7 +72,7 @@ def test_pipe_plugin_ddp_rpc_manual_amp(tmpdir, args=None):
         precision=16,
         amp_backend="native",
         distributed_backend="ddp",
-        plugins=[PipeParallelPlugin(balance=[2, 1])],
+        plugins=[DDPSequentialPlugin(balance=[2, 1])],
     )
     try:
         trainer.fit(model)
@@ -80,7 +80,7 @@ def test_pipe_plugin_ddp_rpc_manual_amp(tmpdir, args=None):
         assert len(trainer.dev_debugger.pbar_added_metrics) > 0
 
     except MisconfigurationException as e:
-        assert str(e) == 'PipeRPCPlugin is currently not supported in Automatic Mixed Precision'
+        assert str(e) == 'DDPSequentialPlugin is currently not supported in Automatic Mixed Precision'
 
     del model
 
@@ -90,7 +90,7 @@ def test_pipe_plugin_ddp_rpc_manual_amp(tmpdir, args=None):
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="test requires multi-GPU machine")
 @pytest.mark.skipif(not os.getenv("PL_RUNNING_SPECIAL_TESTS", '0') == '1',
                     reason="test should be run outside of pytest")
-def test_pipe_plugin_ddp_rpc_automatic(tmpdir, args=None):
+def test_ddp_sequential_plugin_ddp_rpc_automatic(tmpdir, args=None):
     model = SequentialModelRPCAutomatic()
     trainer = Trainer(
         max_epochs=2,
@@ -99,7 +99,7 @@ def test_pipe_plugin_ddp_rpc_automatic(tmpdir, args=None):
         limit_test_batches=2,
         gpus=2,
         distributed_backend="ddp",
-        plugins=[PipeParallelPlugin(balance=[2, 1])],
+        plugins=[DDPSequentialPlugin(balance=[2, 1])],
     )
 
     try:
@@ -120,7 +120,7 @@ def test_pipe_plugin_ddp_rpc_automatic(tmpdir, args=None):
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="test requires multi-GPU machine")
 @pytest.mark.skipif(not os.getenv("PL_RUNNING_SPECIAL_TESTS", '0') == '1',
                     reason="test should be run outside of pytest")
-def test_pipe_plugin_ddp_rpc_with_wrong_balance(tmpdir, args=None):
+def test_ddp_sequential_plugin_ddp_rpc_with_wrong_balance(tmpdir, args=None):
     model = SequentialModelRPCAutomatic()
     trainer = Trainer(
         max_epochs=2,
@@ -129,7 +129,7 @@ def test_pipe_plugin_ddp_rpc_with_wrong_balance(tmpdir, args=None):
         limit_test_batches=2,
         gpus=2,
         distributed_backend="ddp",
-        plugins=[PipeParallelPlugin(balance=[2, 2])],
+        plugins=[DDPSequentialPlugin(balance=[2, 2])],
     )
 
     try:

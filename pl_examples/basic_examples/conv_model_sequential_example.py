@@ -12,12 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import math
-import os
-import time
 from argparse import ArgumentParser
 
 import torch
-import torch.distributed as torch_distrib
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
@@ -25,26 +22,21 @@ import torchvision
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer
 from pytorch_lightning.metrics.functional import accuracy
-from pytorch_lightning.plugins.pipe_rpc_plugin import PipeParallelPlugin
+from pytorch_lightning.plugins.ddp_sequential_plugin import DDPSequentialPlugin
 from pytorch_lightning.utilities import BOLT_AVAILABLE, FAIRSCALE_PIPE_AVAILABLE
 
 if BOLT_AVAILABLE:
     import pl_bolts
     from pl_bolts.transforms.dataset_normalizations import cifar10_normalization
+"""
 
+Example script of running the experimental DDP Sequential Plugin.
+This script splits a convolutional model onto multiple GPUs, whilst using the internal built in balancer
+to balance across your GPUs.
 
-def record_model_stats(run, args):
-    time_start = time.perf_counter()
-    torch.cuda.reset_peak_memory_stats()
-    torch.cuda.synchronize()
-
-    run(args)
-
-    torch.cuda.synchronize()
-    max_memory = torch.cuda.max_memory_allocated() / 2 ** 20
-    total_time = time.perf_counter() - time_start
-
-    return max_memory, total_time
+To run:
+python cnn_cifar_pipe.py --accelerator ddp --gpus 4 --max_epochs 1  --batch_size 256 --use_ddp_sequential
+"""
 
 
 #####################
@@ -109,22 +101,23 @@ class ConvNN(nn.Module):
 
 
 class LitResnet(pl.LightningModule):
-    def __init__(self, lr=0.05, batch_size=32, use_pipe=False):
+    def __init__(self, lr=0.05, batch_size=32, use_ddp_sequential=False):
         super().__init__()
 
         self.save_hyperparameters()
         model = ConvNN()
         self.layers = model.layers
         self._example_input_array = torch.randn((1, 3, 32, 32))
-        self.use_pipe = use_pipe
-        if self.use_pipe:
-            self.training_step = self.training_step_pipe
+        self.use_ddp_sequential = use_ddp_sequential
+        if self.use_ddp_sequential:
+            # swap to manual optimization if using ddp_sequential
+            self.training_step = self.training_step_manual
 
     def forward(self, x):
         out = self.layers(x)
         return F.log_softmax(out, dim=-1)
 
-    def training_step_pipe(self, batch, batch_idx):
+    def training_step_manual(self, batch, batch_idx):
         opt = self.optimizers()
 
         def closure():
@@ -181,7 +174,7 @@ class LitResnet(pl.LightningModule):
     @property
     def automatic_optimization(self) -> bool:
         # Turn off automatic optimization when using pipe parallel
-        return not self.use_pipe
+        return not self.use_ddp_sequential
 
 
 #################################
@@ -211,33 +204,28 @@ def instantiate_datamodule(args):
     return cifar10_dm
 
 
-def run(args):
+if __name__ == "__main__":
+    parser = ArgumentParser(description="Pipe Example")
+    parser.add_argument("--use_ddp_sequential", action="store_true")
+    parser.add_argument("--batch_size", type=int, default=32)
+    parser = Trainer.add_argparse_args(parser)
+    args = parser.parse_args()
+
+    assert BOLT_AVAILABLE, "Bolts is required for this example, install it via pip install pytorch-lightning-bolts"
+    assert FAIRSCALE_PIPE_AVAILABLE, "FairScale and PyTorch 1.6 is required for this example."
+
     cifar10_dm = instantiate_datamodule(args)
 
     plugins = None
-    if args.use_pipe:
-        # port to be used by rpc.init_rpc
-        os.environ["RPC_MASTER_PORT"] = "15000"
-        # 17 first layers will be put on gpu 0 and 10 remaining will be put on gpu 1
-        plugins = PipeParallelPlugin(balance=[17, 10])
+    if args.use_ddp_sequential:
+        plugins = DDPSequentialPlugin()
 
-    model = LitResnet(batch_size=args.batch_size, use_pipe=args.use_pipe)
+    model = LitResnet(batch_size=args.batch_size, use_ddp_sequential=args.use_ddp_sequential)
 
     trainer = pl.Trainer.from_argparse_args(args, plugins=[plugins] if plugins else None)
     trainer.fit(model, cifar10_dm)
     trainer.test(model, datamodule=cifar10_dm)
 
-    if trainer.accelerator_backend.rpc_enabled and trainer.accelerator_backend.ddp_plugin.is_main_rpc_process:
-        torch.distributed.rpc.shutdown()
-
-
-if __name__ == "__main__":
-    parser = ArgumentParser(description="Pipe Example")
-    parser.add_argument("--use_pipe", action="store_true")
-    parser.add_argument("--batch_size", type=int, default=32)
-    parser = Trainer.add_argparse_args(parser)
-
-    assert BOLT_AVAILABLE, "Bolts is required for this example, install it via pip install pytorch-lightning-bolts"
-    assert FAIRSCALE_PIPE_AVAILABLE, "FairScale and PyTorch 1.6 is required for this example."
-    max_memory, total_time = record_model_stats(run, parser.parse_args())
-    print(max_memory, total_time)
+    if trainer.accelerator_backend.rpc_enabled:
+        # Called at the end of trainer to ensure all processes are killed
+        trainer.accelerator_backend.ddp_plugin.on_exit_rpc_process(trainer)
