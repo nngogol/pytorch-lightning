@@ -13,6 +13,7 @@
 # limitations under the License.
 import os
 
+import torch
 from torch.distributed import rpc
 
 from pytorch_lightning.plugins.ddp_plugin import DDPPlugin
@@ -27,11 +28,16 @@ class RPCPlugin(DDPPlugin):
     that need to be addressed when using RPC communication when building custom RPC Plugins.
     """
 
+    def __init__(self, **kwargs):
+        self.rpc_initialized = False
+        super().__init__(**kwargs)
+
     def init_rpc_connection(self,
                             global_rank: int,
                             world_size: int):
         os.environ['MASTER_PORT'] = os.getenv('RPC_MASTER_PORT', '15000')
         rpc.init_rpc(f"worker{global_rank}", rank=global_rank, world_size=world_size)
+        self.rpc_initialized = True
 
     def rpc_save_model(self,
                        save_model_fn,
@@ -44,7 +50,8 @@ class RPCPlugin(DDPPlugin):
         raise NotImplementedError
 
     def on_exit_rpc_process(self, trainer):
-        raise NotImplementedError
+        if self.rpc_initialized:
+            torch.distributed.rpc.shutdown()
 
     def optimizer_step(self,
                        model,

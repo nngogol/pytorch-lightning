@@ -150,8 +150,7 @@ class PipeParallelPlugin(RPCPlugin):
             # Add trainer/configure_optimizers to the pipe model for access in all worker processes
             rpc_pipe.PipeModel.trainer = trainer
             rpc_pipe.PipeModel.configure_optimizers = trainer.model.configure_optimizers
-        # For RPC, all ranks other than 0 just need to call rpc.shutdown()
-        torch.distributed.rpc.shutdown()
+        super().on_exit_rpc_process(trainer)
 
     def set_main_rpc_process(self):
         self.main_rpc_process = torch_distrib.get_rank(group=mpu.get_pipeline_parallel_group()) == 0
