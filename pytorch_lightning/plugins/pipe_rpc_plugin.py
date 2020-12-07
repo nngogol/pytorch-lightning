@@ -9,7 +9,7 @@ from torch.nn.parallel import DistributedDataParallel
 from pytorch_lightning import LightningModule
 from pytorch_lightning import _logger as log
 from pytorch_lightning.plugins.rpc_plugin import RPCPlugin
-from pytorch_lightning.utilities import FAIRSCALE_PIPE_AVAILABLE
+from pytorch_lightning.utilities import FAIRSCALE_PIPE_AVAILABLE, rank_zero_only
 from pytorch_lightning.utilities.exceptions import MisconfigurationException
 
 if FAIRSCALE_PIPE_AVAILABLE:
@@ -21,7 +21,7 @@ if FAIRSCALE_PIPE_AVAILABLE:
     from torch.distributed import rpc
 
 
-class PipeRPCPlugin(RPCPlugin):
+class PipeParallelPlugin(RPCPlugin):
     def __init__(self,
                  balance: Optional[List[int]] = None,
                  num_partitions: Optional[int] = None,
@@ -183,6 +183,7 @@ class PipeRPCPlugin(RPCPlugin):
         ddp_plugin = RPCPlugin(process_group=mpu.get_data_parallel_group()).configure_ddp(model, device_ids)
         return ddp_plugin
 
+    @rank_zero_only
     def rpc_save_model(self, save_model_fn, last_filepath, trainer, pl_module):
         model = trainer.get_model()
         if hasattr(model, "foreach_worker"):

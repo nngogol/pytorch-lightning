@@ -23,7 +23,7 @@ from torch import nn
 from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.callbacks import Callback
 from pytorch_lightning.plugins.native_amp import NativeAMPPlugin
-from pytorch_lightning.plugins.pipe_rpc_plugin import FAIRSCALE_AVAILABLE, PipeRPCPlugin
+from pytorch_lightning.plugins.pipe_rpc_plugin import FAIRSCALE_AVAILABLE, PipeParallelPlugin
 from pytorch_lightning.utilities.exceptions import MisconfigurationException
 from tests.base.boring_model import BoringModel, RandomDataset
 
@@ -115,7 +115,7 @@ def test_pipe_plugin_ddp_rpc_manual(tmpdir, args=None):
         limit_test_batches=2,
         gpus=2,
         distributed_backend="ddp",
-        plugins=[PipeRPCPlugin(balance=[2, 1])],
+        plugins=[PipeParallelPlugin(balance=[2, 1])],
         automatic_optimization=False,
     )
 
@@ -141,7 +141,7 @@ def test_pipe_plugin_ddp_rpc_manual_amp(tmpdir, args=None):
         precision=16,
         amp_backend="native",
         distributed_backend="ddp",
-        plugins=[PipeRPCPlugin(balance=[2, 1])],
+        plugins=[PipeParallelPlugin(balance=[2, 1])],
         automatic_optimization=False,
     )
     try:
@@ -216,7 +216,7 @@ def test_pipe_plugin_ddp_rpc_automatic(tmpdir, args=None):
         limit_test_batches=2,
         gpus=2,
         distributed_backend="ddp",
-        plugins=[PipeRPCPlugin(balance=[2, 1])],
+        plugins=[PipeParallelPlugin(balance=[2, 1])],
         automatic_optimization=True,
     )
 
@@ -246,7 +246,7 @@ def test_pipe_plugin_ddp_rpc_with_wrong_balance(tmpdir, args=None):
         limit_test_batches=2,
         gpus=2,
         distributed_backend="ddp",
-        plugins=[PipeRPCPlugin(balance=[2, 2])],
+        plugins=[PipeParallelPlugin(balance=[2, 2])],
         automatic_optimization=False,
     )
 

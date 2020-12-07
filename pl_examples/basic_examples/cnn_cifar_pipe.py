@@ -24,10 +24,9 @@ import torchvision
 
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.metrics.functional import accuracy
-from pytorch_lightning.plugins.pipe_rpc_plugin import PipeRPCPlugin
-from pytorch_lightning.utilities import BOLT_AVAILABLE
+from pytorch_lightning.plugins.pipe_rpc_plugin import PipeParallelPlugin
+from pytorch_lightning.utilities import BOLT_AVAILABLE, FAIRSCALE_PIPE_AVAILABLE
 
 if BOLT_AVAILABLE:
     import pl_bolts
@@ -49,7 +48,7 @@ def record_model_stats(run, args):
 
 
 #####################
-#      Module       #
+#      Modules      #
 #####################
 
 
@@ -178,9 +177,13 @@ class LitResnet(pl.LightningModule):
             }
         }
 
+    def automatic_optimization(self) -> bool:
+        # Turn off automatic optimization when using pipe parallel
+        return not self.use_pipe
+
 
 #################################
-#     Instantiate Functions     #
+#     Instantiate Data Module   #
 #################################
 
 def instantiate_datamodule(args):
@@ -214,42 +217,25 @@ def run(args):
         # port to be used by rpc.init_rpc
         os.environ["RPC_MASTER_PORT"] = "15000"
         # 17 first layers will be put on gpu 0 and 10 remaining will be put on gpu 1
-        plugins = [PipeRPCPlugin(balance=[17, 10])]
-        gpus = 2
-        accelerator = "ddp"
-    else:
-        gpus = 1
-        accelerator = None
+        plugins = PipeParallelPlugin(balance=[17, 10])
 
     model = LitResnet(batch_size=args.batch_size, use_pipe=args.use_pipe)
 
-    trainer = pl.Trainer(
-        progress_bar_refresh_rate=20,
-        max_epochs=2,
-        gpus=gpus,
-        logger=pl.loggers.TensorBoardLogger('lightning_logs/', name='resnet'),
-        callbacks=[LearningRateMonitor(logging_interval='step'),
-                   ModelCheckpoint(filename='{epoch:03d}', save_last=True)],
-        accelerator=accelerator,
-        plugins=plugins,
-        limit_train_batches=2,
-        limit_val_batches=2,
-        automatic_optimization=not args.use_pipe,
-    )
+    trainer = pl.Trainer.from_argparse_args(args, plugins=[plugins] if plugins else None)
     trainer.fit(model, cifar10_dm)
     trainer.test(model, datamodule=cifar10_dm)
 
-    if args.use_pipe and trainer.global_rank == 0:
+    if trainer.accelerator_backend.rpc_enabled and trainer.accelerator_backend.ddp_plugin.is_main_rpc_process:
         torch.distributed.rpc.shutdown()
 
 
 if __name__ == "__main__":
     parser = ArgumentParser(description="Pipe Example")
-    parser.add_argument("--use_pipe", type=int, default=1)
+    parser.add_argument("--use_pipe", action="store_true")
     parser.add_argument("--batch_size", type=int, default=32)
     parser = Trainer.add_argparse_args(parser)
 
     assert BOLT_AVAILABLE, "Bolts is required for this example, install it via pip install pytorch-lightning-bolts"
-
+    assert FAIRSCALE_PIPE_AVAILABLE, "FairScale and PyTorch 1.6 is required for this example."
     max_memory, total_time = record_model_stats(run, parser.parse_args())
     print(max_memory, total_time)
