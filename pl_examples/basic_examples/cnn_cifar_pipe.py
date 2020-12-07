@@ -177,6 +177,7 @@ class LitResnet(pl.LightningModule):
             }
         }
 
+    @property
     def automatic_optimization(self) -> bool:
         # Turn off automatic optimization when using pipe parallel
         return not self.use_pipe
