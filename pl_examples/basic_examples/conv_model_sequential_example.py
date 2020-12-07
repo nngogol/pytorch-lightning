@@ -228,4 +228,4 @@ if __name__ == "__main__":
 
     if trainer.accelerator_backend.rpc_enabled:
         # Called at the end of trainer to ensure all processes are killed
-        trainer.accelerator_backend.ddp_plugin.exit_rpc_process(trainer)
+        trainer.accelerator_backend.ddp_plugin.exit_rpc_process()
