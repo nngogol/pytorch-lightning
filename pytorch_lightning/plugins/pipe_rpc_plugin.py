@@ -165,7 +165,7 @@ class PipeParallelPlugin(RPCPlugin):
             model.foreach_worker(register_optimizers, include_self=True)
 
     def _check_manual_optimization(self, trainer):
-        automatic_optimization = trainer.train_loop.automatic_optimization
+        automatic_optimization = trainer.train_loop.automatic_optimization or trainer.model.automatic_optimization
         if automatic_optimization:
             raise MisconfigurationException(
                 'PipeRPCPlugin is currently not supported in automatic optimization')
