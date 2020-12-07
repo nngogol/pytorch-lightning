@@ -166,29 +166,13 @@ class SequentialModelRPCManual(LightningModule):
         return out
 
     def training_step(self, batch, batch_idx):
-        if self.trainer.batch_idx % 2 == 0:
-            self._count += 1
-            opt = self.optimizers()
-            output = self.layers(batch)
-            loss = self.loss(output)
-            self.log("train_loss", loss, on_epoch=True, prog_bar=True)
-            self.manual_backward(loss, opt)
-            assert torch.stack([torch.abs(p.grad).sum() for p in self.parameters()]).sum() > 0
-            opt.step()
-        else:
-            opt = self.optimizers()
-
-            def closure():
-                self._count += 1
-                output = self.layers(batch)
-                loss = self.loss(output)
-                self.log("train_loss", loss, on_epoch=True, prog_bar=True)
-                self.manual_backward(loss, opt)
-                assert torch.stack([torch.abs(p.grad).sum() for p in self.parameters()]).sum() > 0
-
-            opt.step(closure=closure)
-        self._called += 1
-        assert self._called == self._count
+        opt = self.optimizers()
+        output = self.layers(batch)
+        loss = self.loss(output)
+        self.log("train_loss", loss, on_epoch=True, prog_bar=True)
+        self.manual_backward(loss, opt)
+        assert torch.stack([torch.abs(p.grad).sum() for p in self.parameters()]).sum() > 0
+        opt.step()
         assert torch.stack([torch.abs(p.grad).sum() for p in self.parameters()]).sum() == 0
 
     def validation_step(self, batch, batch_idx):
@@ -237,7 +221,6 @@ class SequentialModelRPCAutomatic(LightningModule):
         return out
 
     def training_step(self, batch, batch_idx):
-        opt = self.optimizers()
         output = self.layers(batch)
         loss = self.loss(output)
         self.log("train_loss", loss, on_epoch=True, prog_bar=True)
