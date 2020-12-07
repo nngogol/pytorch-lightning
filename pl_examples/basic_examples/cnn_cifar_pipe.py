@@ -116,7 +116,8 @@ class LitResnet(pl.LightningModule):
         model = ConvNN()
         self.layers = model.layers
         self._example_input_array = torch.randn((1, 3, 32, 32))
-        if use_pipe:
+        self.use_pipe = use_pipe
+        if self.use_pipe:
             self.training_step = self.training_step_pipe
 
     def forward(self, x):
