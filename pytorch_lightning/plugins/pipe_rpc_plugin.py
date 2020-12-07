@@ -1,5 +1,4 @@
 import os
-
 from typing import List, Optional
 
 import torch
@@ -16,7 +15,6 @@ from pytorch_lightning.utilities.exceptions import MisconfigurationException
 if FAIRSCALE_PIPE_AVAILABLE:
     import fairscale.nn.model_parallel as mpu
     from fairscale.nn import PipeRPCWrapper
-    from fairscale.nn.model_parallel.utils import ensure_divisibility
     from fairscale.nn.pipe import balance as pipe_balance
     from fairscale.nn.pipe import rpc as rpc_pipe
     from fairscale.nn.pipe.pipeline import PipelineStyle

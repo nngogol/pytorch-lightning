@@ -19,6 +19,13 @@ from pytorch_lightning.plugins.ddp_plugin import DDPPlugin
 
 
 class RPCPlugin(DDPPlugin):
+    """
+    Backbone for RPC Plugins built on top of DDP.
+    RPC introduces different communication behaviour than DDP. Unlike DDP, processes potentially are not
+    required to run the same code as the main process.
+    This leads to edge cases where logic needs to be re-defined. This class contains special cases
+    that need to be addressed when using RPC communication when building custom RPC Plugins.
+    """
 
     def init_rpc_connection(self,
                             global_rank: int,
