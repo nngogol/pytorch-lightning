@@ -4,14 +4,8 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/).
 
-## Unreleased
 
-### Fixed
-
-- Fixed `LoggerConnector` to have logged metrics on root device in DP ([#4138](https://github.com/PyTorchLightning/pytorch-lightning/pull/4138))
-
-
-## [1.1.0rc] - 2020-12-02
+## [1.1.0rc2] - 2020-12-02
 
 ### Added
 
@@ -79,6 +73,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/).
 - Added `Pytorch Geometric` integration example with Lightning ([#4568](https://github.com/PyTorchLightning/pytorch-lightning/pull/4568))
 
 
+- Enabled `self.log` in most functions ([#4969](https://github.com/PyTorchLightning/pytorch-lightning/pull/4969))
+
+
+- Added changeable extension variable for model checkpoints ([#4977](https://github.com/PyTorchLightning/pytorch-lightning/pull/4977))
+
+
+- Added Commet `experiment_key` argument to online mode example ([#4997](https://github.com/PyTorchLightning/pytorch-lightning/pull/4997))
+
+
 ### Changed
 
 - Removed `multiclass_roc` and `multiclass_precision_recall_curve`, use `roc` and `precision_recall_curve` instead ([#4549](https://github.com/PyTorchLightning/pytorch-lightning/pull/4549))
@@ -96,6 +99,12 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/).
 
 
 - Changed `Simple Profiler` report to order by percentage time spent + num calls ([#4880](https://github.com/PyTorchLightning/pytorch-lightning/pull/4880))
+
+
+- Simplify optimization Logic ([#4984](https://github.com/PyTorchLightning/pytorch-lightning/pull/4984))
+
+
+- Classification metrics overhaul ([#4837](https://github.com/PyTorchLightning/pytorch-lightning/pull/4837))
 
 
 ### Deprecated
@@ -117,10 +126,23 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/).
 
 - Added feature to move tensors to CPU before saving ([#4309](https://github.com/PyTorchLightning/pytorch-lightning/pull/4309))
 
+
 - Fixed `LoggerConnector` to have logged metrics on root device in DP ([#4138](https://github.com/PyTorchLightning/pytorch-lightning/pull/4138))
 
 
 - Auto convert tensors to contiguous format when `gather_all` ([#4907](https://github.com/PyTorchLightning/pytorch-lightning/pull/4907))
+
+
+- Fixed `LoggerConnector` to have logged metrics on root device in DP ([#4138](https://github.com/PyTorchLightning/pytorch-lightning/pull/4138))
+
+
+- Fixed `PYTHONPATH` for ddp test model ([#4528](https://github.com/PyTorchLightning/pytorch-lightning/pull/4528))
+
+
+- Fixed allowing logger to support indexing ([#4595](https://github.com/PyTorchLightning/pytorch-lightning/pull/4595))
+
+
+- Fixed DDP and `manual_optimisation` ([#4976](https://github.com/PyTorchLightning/pytorch-lightning/pull/4976))
 
 
 ## [1.0.8] - 2020-11-24
