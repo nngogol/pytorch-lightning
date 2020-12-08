@@ -203,9 +203,6 @@ class DDPSequentialPlugin(RPCPlugin):
             raise MisconfigurationException(
                 'DDPSequentialPlugin is currently not supported in Automatic Mixed Precision')
 
-    def on_after_setup_optimizers(self, trainer):
-        self._optimizers_map = {opt_idx: False for opt_idx, opt in enumerate(trainer.optimizers)}
-
     def configure_ddp(
             self, model: LightningModule, device_ids: List[int]
     ) -> DistributedDataParallel:
@@ -227,23 +224,12 @@ class DDPSequentialPlugin(RPCPlugin):
             del pl_module.sequential_module
             pl_module.sequential_module = current_layers
 
-    def _optimizer_step(self, model, opt_idx, *args, **kwargs):
-        model.sequential_module.foreach_worker(run_optimizer, {"opt_idx": opt_idx}, include_self=False)
-
-    def optimizer_step(self,
-                       model,
-                       lightning_optimizer,
-                       closure,
-                       *args,
-                       **kwargs):
-        opt_idx = lightning_optimizer._optimizer_idx
-        self._optimizers_map[opt_idx] = not self._optimizers_map[opt_idx]
-
-        if self._optimizers_map[opt_idx]:
-            lightning_optimizer.step(closure=closure, *args, **kwargs)
-            self._optimizer_step(model, opt_idx, *args, **kwargs)
-            return True
-        return False
+    def worker_optimizer_step(self, model, opt_idx, *args, **kwargs):
+        model.sequential_module.foreach_worker(
+            run_optimizer,
+            {"opt_idx": opt_idx, "args": args, "kwargs": kwargs},
+            include_self=False
+        )
 
     def distributed_sampler_kwargs(self, distributed_sampler_kwargs):
         distributed_sampler_kwargs = dict(
@@ -339,16 +325,11 @@ def register_optimizers(ctx, model):
     model.trainer.convert_to_lightning_optimizers()
 
 
-def do_nothing_optimizer_closure():
-    return
-
-
 def run_optimizer(ctx, model):
     trainer = model.trainer
     opt_idx = ctx["opt_idx"]
     optimizer = trainer.optimizers[opt_idx]
-    closure = getattr(optimizer, "_closure", do_nothing_optimizer_closure)
-    optimizer.step(closure=closure)
+    optimizer.step(*ctx["args"], **ctx["kwargs"])
 
 
 def save_layers_on_all_rank_zero_workers(ctx, model):

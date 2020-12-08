@@ -90,18 +90,6 @@ class LightningOptimizer:
                     self._optimizer_idx = opt_idx
                     break
 
-        accelerator_backend = trainer.accelerator_backend
-        if accelerator_backend is not None and accelerator_backend.rpc_enabled:
-            if accelerator_backend.ddp_plugin.is_main_rpc_process:
-                # Initialize optimizer step on main process
-                accelerator_backend.ddp_plugin.optimizer_step(
-                    model=model,
-                    lightning_optimizer=self,
-                    closure=closure,
-                    *args,
-                    **kwargs
-                )
-
         if trainer.on_tpu:
             with trainer.profiler.profile(profiler_name):
                 xm.optimizer_step(optimizer, optimizer_args={'closure': closure, **kwargs})
@@ -114,6 +102,17 @@ class LightningOptimizer:
         else:
             with trainer.profiler.profile(profiler_name):
                 optimizer.step(closure=closure, *args, **kwargs)
+
+        accelerator_backend = trainer.accelerator_backend
+        if accelerator_backend is not None and accelerator_backend.rpc_enabled:
+            if accelerator_backend.ddp_plugin.is_main_rpc_process:
+                # Initialize optimizer step on main process
+                accelerator_backend.ddp_plugin.worker_optimizer_step(
+                    model=model,
+                    opt_idx=self._optimizer_idx,
+                    *args,
+                    **kwargs
+                )
 
         # perform zero grad
         optimizer.zero_grad()
