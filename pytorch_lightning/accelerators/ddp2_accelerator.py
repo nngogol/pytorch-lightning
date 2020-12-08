@@ -94,6 +94,7 @@ class DDP2Accelerator(Accelerator):
         return output
 
     def set_world_ranks(self, process_idx):
+        # Todo: required argument `process_idx` is not used
         self.trainer.local_rank = self.trainer.node_rank
         self.trainer.global_rank = self.trainer.node_rank
         self.trainer.world_size = self.trainer.num_nodes
@@ -123,6 +124,7 @@ class DDP2Accelerator(Accelerator):
             Dict with evaluation results
 
         """
+        # Todo: required argument `mp_queue` is not used
         # show progressbar only on progress_rank 0
         if (self.trainer.node_rank != 0 or process_idx != 0) and self.trainer.progress_bar_callback is not None:
             self.trainer.progress_bar_callback.disable()

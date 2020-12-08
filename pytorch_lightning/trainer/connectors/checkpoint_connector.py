@@ -189,6 +189,7 @@ class CheckpointConnector:
 
     def restore_hpc_weights_if_needed(self, model: LightningModule):
         """If there is a set of hpc weights, use as signal to restore model."""
+        # Todo: required argument `model` is not used
         did_restore = False
 
         # look for hpc weights
@@ -333,7 +334,7 @@ class CheckpointConnector:
 
         return checkpoint
 
-    def hpc_load(self, folderpath, on_gpu):
+    def hpc_load(self, folderpath, on_gpu: bool):
         filepath = '{}/hpc_ckpt_{}.ckpt'.format(folderpath, self.max_ckpt_in_folder(folderpath))
 
         # load on CPU first
@@ -345,7 +346,7 @@ class CheckpointConnector:
         # restore states from 'PyTorch-Lightning checkpoint' dictionary object
         self.restore_model_state(model, checkpoint)
 
-        if self.trainer.root_gpu is not None:
+        if on_gpu and self.trainer.root_gpu is not None:
             model.cuda(self.trainer.root_gpu)
 
         # load training state (affects trainer only)

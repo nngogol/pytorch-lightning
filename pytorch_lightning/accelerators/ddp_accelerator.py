@@ -89,7 +89,7 @@ class DDPAccelerator(Accelerator):
         command = sys.argv
         try:
             full_path = path_lib(command[0])
-        except Exception as e:
+        except Exception:
             full_path = abspath(command[0])
 
         command[0] = full_path
@@ -178,6 +178,7 @@ class DDPAccelerator(Accelerator):
         self.trainer.world_size = self.trainer.num_nodes * self.trainer.num_processes
 
     def model_to_device(self, model, process_idx):
+        # Todo: required argument `process_idx` is not used
         self.trainer.root_gpu = self.trainer.data_parallel_device_ids[self.trainer.local_rank]
         torch.cuda.set_device(self.trainer.root_gpu)
         model.cuda(self.trainer.root_gpu)
