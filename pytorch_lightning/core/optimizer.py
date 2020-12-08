@@ -12,12 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import types
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 from weakref import proxy
 
 from torch.optim.optimizer import Optimizer
 
-from pytorch_lightning.plugins.rpc_plugin import RPCPlugin
 from pytorch_lightning.utilities import TPU_AVAILABLE
 from pytorch_lightning.utilities.exceptions import MisconfigurationException
 
@@ -93,15 +92,15 @@ class LightningOptimizer:
 
         accelerator_backend = trainer.accelerator_backend
         if accelerator_backend is not None and accelerator_backend.rpc_enabled:
-            if not accelerator_backend.ddp_plugin.is_main_rpc_process:
-                return
-            accelerator_backend.ddp_plugin.optimizer_step(
-                model=model,
-                lightning_optimizer=self,
-                closure=closure,
-                *args,
-                **kwargs
-            )
+            if accelerator_backend.ddp_plugin.is_main_rpc_process:
+                # Initialize optimizer step on main process
+                accelerator_backend.ddp_plugin.optimizer_step(
+                    model=model,
+                    lightning_optimizer=self,
+                    closure=closure,
+                    *args,
+                    **kwargs
+                )
 
         if trainer.on_tpu:
             with trainer.profiler.profile(profiler_name):

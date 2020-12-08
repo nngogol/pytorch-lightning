@@ -54,7 +54,7 @@ class ConvNN(nn.Module):
     def __init__(self):
         super(ConvNN, self).__init__()
 
-        self.layers = nn.Sequential(
+        self.sequential_module = nn.Sequential(
             # Conv Layer block 1
             nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3, padding=1),
             nn.BatchNorm2d(32),
@@ -92,7 +92,7 @@ class ConvNN(nn.Module):
         )
 
     def forward(self, x):
-        return self.layers(x)
+        return self.sequential_module(x)
 
 
 ###############################
@@ -106,15 +106,12 @@ class LitResnet(pl.LightningModule):
 
         self.save_hyperparameters()
         model = ConvNN()
-        self.layers = model.layers
+        self.sequential_module = model.sequential_module
         self._example_input_array = torch.randn((1, 3, 32, 32))
-        self.use_ddp_sequential = use_ddp_sequential
-        if self.use_ddp_sequential:
-            # swap to manual optimization if using ddp_sequential
-            self.training_step = self.training_step_manual
+        self.training_step = self.training_step_manual
 
     def forward(self, x):
-        out = self.layers(x)
+        out = self.sequential_module(x)
         return F.log_softmax(out, dim=-1)
 
     def training_step_manual(self, batch, batch_idx):
@@ -158,6 +155,7 @@ class LitResnet(pl.LightningModule):
         self.log_dict({'test_loss': loss, 'test_acc': acc})
 
     def configure_optimizers(self):
+        print("PARAMETERS", self.trainer.global_rank, self.parameters())
         optimizer = torch.optim.SGD(self.parameters(), lr=self.hparams.lr, momentum=0.9, weight_decay=5e-4)
         return {
             'optimizer': optimizer,
@@ -174,7 +172,7 @@ class LitResnet(pl.LightningModule):
     @property
     def automatic_optimization(self) -> bool:
         # Turn off automatic optimization when using pipe parallel
-        return not self.use_ddp_sequential
+        return False
 
 
 #################################
@@ -218,7 +216,7 @@ if __name__ == "__main__":
 
     plugins = None
     if args.use_ddp_sequential:
-        plugins = DDPSequentialPlugin()
+        plugins = DDPSequentialPlugin(balance=[1, 26])
 
     model = LitResnet(batch_size=args.batch_size, use_ddp_sequential=args.use_ddp_sequential)
 

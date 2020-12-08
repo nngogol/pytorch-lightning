@@ -1,5 +1,5 @@
 import os
-from typing import List, Optional, Union
+from typing import List, Optional
 
 import torch
 import torch.distributed as torch_distrib
@@ -78,7 +78,7 @@ class DDPSequentialPlugin(RPCPlugin):
             raise MisconfigurationException(
                 'Please set example_input_array to your model, so we can infer the right model balance for you')
         balance_func = getattr(pipe_balance, self.balance_mode)
-        self.balance = balance_func(self.gpus_per_model, model.layers, model.example_input_array)
+        self.balance = balance_func(self.gpus_per_model, model.sequential_module, model.example_input_array)
         self._sync_balance_to_all_parallel_groups()
 
         log.info(f'The following model balance {self.balance.tolist()} was inferred using {self.balance_mode} mode')
@@ -97,40 +97,44 @@ class DDPSequentialPlugin(RPCPlugin):
 
     def _check_sequential_model_exists(self, trainer):
         model = trainer.get_model()
-        if not hasattr(model, "layers") or not isinstance(model.layers, nn.Sequential):
+        if not hasattr(model, "sequential_module") or not isinstance(model.sequential_module, nn.Sequential):
             raise MisconfigurationException(
                 'Could not find a PipeLightningModule within the model. '
-                'Did you defined set your sequential model as an `layers` attribute of your model ?')
+                'Did you defined set your sequential model as an `sequential_module` attribute of your model ?')
 
-    def _find_pipe_module(self, model):
+    def _find_and_init_pipe_module(self, model):
         found_module = False
-        if hasattr(model, "layers") and isinstance(model.layers, LightningPipeModule):
+        if hasattr(model, "sequential_module") and isinstance(model.sequential_module, LightningPipeModule):
             # model has been wrapped already
             found_module = True
-        elif hasattr(model, "layers") and isinstance(model.layers, nn.Sequential):
+        elif hasattr(model, "sequential_module") and isinstance(model.sequential_module, nn.Sequential):
             # try to wrap model for the user
-            model.layers = LightningPipeModule(
-                model.layers,
+            model.sequential_module = LightningPipeModule(
+                model.sequential_module,
                 balance=self.balance,
                 microbatches=self.microbatches,
                 checkpoint=self.checkpoint,
             )
-            model.final_stage = model.layers.module.final_stage
-            model.foreach_worker = model.layers.module.foreach_worker
-            model.layers.module.model.trainer = model.trainer
-            model.layers.module.model.configure_optimizers = model.configure_optimizers
+            # Update references for workers to access correct lightning functions when calling RPC
+            model.sequential_module.trainer = model.trainer
+            model.sequential_module.configure_optimizers = model.configure_optimizers
+
+            # Update references for main process to access correct lightning functions when calling RPC
+            model.sequential_module.module.model.trainer = model.trainer
+            model.sequential_module.module.model.configure_optimizers = model.configure_optimizers
             found_module = True
 
         if not found_module:
             raise MisconfigurationException(
                 'Could not find a PipeLightningModule within the model. '
-                'Did you defined set your sequential model as an `layers` attribute of your model ?')
+                'Did you defined set your sequential model as an `sequential_module` attribute of your model ?')
 
     def _assert_valid_model_balance(self, trainer):
         model = trainer.get_model()
-        if sum(self.balance) != len(model.layers):
+        if sum(self.balance) != len(model.sequential_module):
             raise MisconfigurationException(
-                f'The provided balance sum: {sum(self.balance)} doesn t match your Sequential length: {len(model.layers)}')
+                f'The provided balance sum: {sum(self.balance)} does not'
+                f' match your Sequential length: {len(model.sequential_module)}')
 
     def _skip_init_connections(self, trainer):
         """
@@ -172,7 +176,10 @@ class DDPSequentialPlugin(RPCPlugin):
 
             # Add trainer/configure_optimizers to the pipe model for access in all worker processes
             rpc_pipe.PipeModel.trainer = trainer
+            del rpc_pipe.PipeModel.trainer.model.sequential_module
+            rpc_pipe.PipeModel.trainer.model.sequential_module = rpc_pipe.PipeModel
             rpc_pipe.PipeModel.configure_optimizers = trainer.model.configure_optimizers
+        super().on_exit_rpc_process(trainer)
 
     def set_main_rpc_process(self):
         self.main_rpc_process = torch_distrib.get_rank(group=mpu.get_pipeline_parallel_group()) == 0
@@ -180,10 +187,10 @@ class DDPSequentialPlugin(RPCPlugin):
     def on_main_rpc_connection(self, trainer):
         # Create pipe_module
         model = trainer.get_model()
-        self._find_pipe_module(model)
+        self._find_and_init_pipe_module(model)
         if not trainer.testing:
             torch_distrib.barrier()  # Ensure we join main process initialization
-            model.foreach_worker(register_optimizers, include_self=True)
+            model.sequential_module.foreach_worker(register_optimizers, include_self=True)
 
     def _check_manual_optimization(self, trainer):
         automatic_optimization = trainer.train_loop.automatic_optimization and trainer.model.automatic_optimization
@@ -207,20 +214,20 @@ class DDPSequentialPlugin(RPCPlugin):
     @rank_zero_only
     def rpc_save_model(self, save_model_fn, last_filepath, trainer, pl_module):
         model = trainer.get_model()
-        if hasattr(model, "foreach_worker"):
-            current_layers = pl_module.layers
-            model.foreach_worker(
+        if hasattr(model.sequential_module, "foreach_worker"):
+            current_layers = pl_module.sequential_module
+            model.sequential_module.foreach_worker(
                 save_layers_on_all_rank_zero_workers,
                 {"gpus_per_model": self.gpus_per_model},
                 include_self=True
             )
-            pl_module.layers = reload_sequential_from_saved_layers(self.gpus_per_model)
+            pl_module.sequential_module = reload_sequential_from_saved_layers(self.gpus_per_model)
             save_model_fn(last_filepath, trainer, pl_module)
-            del pl_module.layers
-            pl_module.layers = current_layers
+            del pl_module.sequential_module
+            pl_module.sequential_module = current_layers
 
     def _optimizer_step(self, model, opt_idx, *args, **kwargs):
-        model.foreach_worker(run_optimizer, {"opt_idx": opt_idx}, include_self=False)
+        model.sequential_module.foreach_worker(run_optimizer, {"opt_idx": opt_idx}, include_self=False)
 
     def optimizer_step(self,
                        model,
@@ -310,6 +317,9 @@ class LightningPipeModule(nn.Module):
             worker_map=self.get_worker_map(),
             checkpoint=self.checkpoint,
         )
+
+    def foreach_worker(self, *args, **kwargs):
+        self.module.foreach_worker(*args, **kwargs)
 
     def forward(self, *args, **kwargs):
         x = self.module(*args, **kwargs)
