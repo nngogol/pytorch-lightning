@@ -244,7 +244,7 @@ class CycleIterator(object):
         finally:
             self.counter += 1
 
-    def __len__(self) -> int:
+    def __len__(self) -> Union[int, float]:
         return self.length
 
 
