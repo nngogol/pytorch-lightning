@@ -257,6 +257,10 @@ class Accelerator(object):
         return False
 
     @property
+    def is_distributed(self):
+        raise NotImplementedError
+
+    @property
     def distributed_sampler_kwargs(self):
         raise NotImplementedError
 

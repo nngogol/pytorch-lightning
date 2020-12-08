@@ -204,7 +204,7 @@ class DDP2Accelerator(Accelerator):
         return results
 
     def configure_ddp(
-        self, model: LightningModule, device_ids: List[int]
+            self, model: LightningModule, device_ids: List[int]
     ) -> DistributedDataParallel:
         model = self.ddp_plugin.configure_ddp(model, device_ids)
         return model
@@ -244,3 +244,7 @@ class DDP2Accelerator(Accelerator):
         if self.ddp_plugin is not None:
             distributed_sampler_kwargs = self.ddp_plugin.distributed_sampler_kwargs(distributed_sampler_kwargs)
         return distributed_sampler_kwargs
+
+    @property
+    def is_distributed(self):
+        return True
