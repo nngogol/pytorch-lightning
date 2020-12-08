@@ -155,7 +155,6 @@ class LitResnet(pl.LightningModule):
         self.log_dict({'test_loss': loss, 'test_acc': acc})
 
     def configure_optimizers(self):
-        print("PARAMETERS", self.trainer.global_rank, self.parameters())
         optimizer = torch.optim.SGD(self.parameters(), lr=self.hparams.lr, momentum=0.9, weight_decay=5e-4)
         return {
             'optimizer': optimizer,

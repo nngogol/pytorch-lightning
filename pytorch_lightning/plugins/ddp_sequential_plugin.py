@@ -73,6 +73,7 @@ class DDPSequentialPlugin(RPCPlugin):
                 self._assert_valid_model_balance(trainer)
 
     def _infer_model_balance(self, trainer):
+        log.info(f'Inferring model balance using {self.balance_mode} mode')
         model = trainer.get_model()
         if model.example_input_array is None:
             raise MisconfigurationException(
